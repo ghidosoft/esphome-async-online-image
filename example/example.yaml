@@ -1,0 +1,98 @@
+# Minimal example: fetch a single PNG from a URL and show it on an LVGL page.
+# Tested on ESP32-S3 with a ST7701S 480x480 display and ESPHome 2026.4.x.
+
+esphome:
+  name: async-image-example
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_MBEDTLS_CERTIFICATE_BUNDLE: "y"
+      CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: DEBUG
+  logs:
+    async_online_image: DEBUG
+
+api:
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+# Required: the component uses esp_http_client directly, but http_request
+# must be present so the IDF component ends up linked.
+http_request:
+  verify_ssl: true
+  timeout: 10s
+
+external_components:
+  - source:
+      type: git
+      url: https://github.com/ghidosoft/esphome-async-online-image
+      ref: v0.1.0
+
+# --- A placeholder static image used as LVGL's initial src ---
+image:
+  - id: placeholder
+    file: mdi:image
+    type: RGB565
+    transparency: alpha_channel
+    resize: 256x256
+
+async_online_image:
+  id: photo
+  slots: 1
+  width: 256
+  height: 256
+  http_timeout: 10s
+  on_slot_ready:
+    - logger.log: "Photo decoded, refreshing widget"
+    - lvgl.image.update:
+        id: photo_widget
+        src: !lambda 'return id(photo)->get_slot(0);'
+  on_error:
+    - logger.log:
+        format: "Photo slot %u failed"
+        args: ['(unsigned) x']
+        level: WARN
+
+# Kick off the download a few seconds after boot (once WiFi/API are up).
+interval:
+  - interval: 30s
+    then:
+      - lambda: |-
+          id(photo)->set_url(
+            0,
+            "https://picsum.photos/seed/esphome/256/256.png");
+
+# A minimal LVGL page with one image widget.
+display:
+  # Configure your actual display driver here (st7701s, ili9xxx, etc.).
+  # This example leaves it as a placeholder — plug in yours.
+  - platform: st7701s
+    id: tft_display
+    dimensions:
+      width: 480
+      height: 480
+    # ... (driver-specific pins / timings)
+
+lvgl:
+  displays:
+    - tft_display
+  pages:
+    - id: main_page
+      widgets:
+        - image:
+            id: photo_widget
+            align: CENTER
+            src: placeholder

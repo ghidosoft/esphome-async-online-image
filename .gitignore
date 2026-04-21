@@ -1,0 +1,9 @@
+.esphome/
+.pio/
+.pioenvs/
+.piolibdeps/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+.idea/
