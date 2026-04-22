@@ -27,7 +27,6 @@ class AsyncImageSlot : public image::Image {
 
 struct SlotState {
   std::string url;
-  uint32_t timestamp{0};  // reserved for future shift-buffer keying
   uint8_t *pixel_buf{nullptr};
   std::atomic<bool> ready{false};
   std::atomic<bool> pending{false};
@@ -51,7 +50,7 @@ class AsyncOnlineImageComponent : public Component {
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
   // API callable from YAML lambdas
-  void set_url(size_t idx, const std::string &url, uint32_t timestamp = 0);
+  void set_url(size_t idx, const std::string &url);
   image::Image *get_slot(size_t idx);
   bool is_ready(size_t idx);
   int ready_count();

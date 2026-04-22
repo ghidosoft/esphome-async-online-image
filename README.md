@@ -27,6 +27,11 @@ blocking each other.
   no full compressed buffer allocation.
 - N slots per component (1..16), each an `image::Image` you can bind to
   any ESPHome widget or LVGL image.
+- **Shift-buffer cache**: if `set_url(idx, url)` is called with a URL
+  that another slot already holds (ready, not in flight), the slot
+  contents are swapped instead of re-downloading. Typical case: a
+  sliding window of frames that rotates by one position — 5 of 6 new
+  URLs are already cached.
 - Pixel buffers allocated in PSRAM; compatible with LVGL v9's
   `LV_COLOR_FORMAT_RGB565A8` (2 B color + 1 B alpha per pixel).
 - Triggers: `on_slot_ready`, `on_all_ready`, `on_error`.
@@ -59,10 +64,7 @@ Add the repo as an external component:
 
 ```yaml
 external_components:
-  - source:
-      type: git
-      url: https://github.com/ghidosoft/esphome-async-online-image
-      ref: v0.1.0
+  - source: github://ghidosoft/esphome-async-online-image@v0.2.0
 ```
 
 ## Configuration
@@ -168,14 +170,21 @@ configuration.
   while its previous download is still in flight (the stale decode may
   publish briefly before being superseded). Acceptable for most use
   cases; not a crash.
+- **Out-of-order shift misses.** Shift reuse only works when the donor
+  slot is `ready=true, pending=false`. If a burst of `set_url` calls
+  arrives in an order such that a future donor is marked pending
+  *before* the call that would have matched it, the opportunity is
+  lost and the frame is re-downloaded. Worst case (all-reverse order):
+  every frame of the new window is re-downloaded. In practice HA
+  delivers sensor values in a predictable sensor-id order, so this
+  hasn't been observed. Fixable with separate `requested_url` vs.
+  `content_url` tracking + a mutex — not implemented yet.
 
 ## Roadmap
 
-- Shift-buffer cache: preserve buffers across URL changes when a
-  content hash / timestamp matches (useful for animated sequences
-  where only one frame changes per refresh).
 - BMP/JPEG decoders as optional build flags.
 - Drop-in single-image form mirroring `online_image:` exactly.
+- Resilient out-of-order shift (see limitations).
 
 ## License
 

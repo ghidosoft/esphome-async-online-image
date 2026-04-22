@@ -36,10 +36,7 @@ http_request:
   timeout: 10s
 
 external_components:
-  - source:
-      type: git
-      url: https://github.com/ghidosoft/esphome-async-online-image
-      ref: v0.1.0
+  - source: github://ghidosoft/esphome-async-online-image@v0.2.0
 
 # --- A placeholder static image used as LVGL's initial src ---
 image:

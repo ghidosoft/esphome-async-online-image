@@ -193,8 +193,7 @@ int AsyncOnlineImageComponent::ready_count() {
   return n;
 }
 
-void AsyncOnlineImageComponent::set_url(size_t idx, const std::string &url,
-                                        uint32_t timestamp) {
+void AsyncOnlineImageComponent::set_url(size_t idx, const std::string &url) {
   if (idx >= this->slots_count_) {
     ESP_LOGW(TAG, "set_url: idx %u out of range", (unsigned)idx);
     return;
@@ -210,10 +209,52 @@ void AsyncOnlineImageComponent::set_url(size_t idx, const std::string &url,
     return;
   }
 
-  ESP_LOGI(TAG, "set_url[%u]: queueing '%s' (ts=%u)", (unsigned)idx, url.c_str(),
-           (unsigned)timestamp);
+  // Shift-buffer cache: if some other stable slot already holds content for
+  // this exact URL, swap the two slot states instead of queuing a new
+  // download. Useful when a sliding window of frames rotates and most frames
+  // are still the same content at shifted indices (e.g., RainViewer radar
+  // tiles — when the window advances 1 step, 5 of 6 new URLs are string-
+  // identical to URLs already loaded in other slots).
+  if (!this->slots_[idx].pending.load(std::memory_order_acquire)) {
+    for (size_t j = 0; j < this->slots_count_; j++) {
+      if (j == idx)
+        continue;
+      if (this->slots_[j].url != url)
+        continue;
+      if (!this->slots_[j].ready.load(std::memory_order_acquire))
+        continue;
+      if (this->slots_[j].pending.load(std::memory_order_acquire))
+        continue;
+      if (this->slots_[j].error.load(std::memory_order_acquire))
+        continue;
+
+      // Found a cached match. Swap slot contents. Both slots have
+      // pending=false and error=false by construction, so no worker is
+      // currently touching either.
+      std::swap(this->slots_[idx].url, this->slots_[j].url);
+      std::swap(this->slots_[idx].pixel_buf, this->slots_[j].pixel_buf);
+      const bool r_i = this->slots_[idx].ready.load(std::memory_order_acquire);
+      const bool r_j = this->slots_[j].ready.load(std::memory_order_acquire);
+      this->slots_[idx].ready.store(r_j, std::memory_order_release);
+      this->slots_[j].ready.store(r_i, std::memory_order_release);
+
+      // Re-point Image data_start_ to the now-current pixel buffers.
+      this->images_[idx]->set_pixel_buffer(this->slots_[idx].pixel_buf);
+      this->images_[j]->set_pixel_buffer(this->slots_[j].pixel_buf);
+
+      // Force on_slot_ready to re-fire for idx on the next loop() so the UI
+      // binding picks up the new buffer (ready was already true, so a naive
+      // edge-triggered detector would miss the content change).
+      this->last_ready_seen_[idx] = false;
+
+      ESP_LOGI(TAG, "set_url[%u]: shift from slot %u", (unsigned)idx,
+               (unsigned)j);
+      return;
+    }
+  }
+
+  ESP_LOGI(TAG, "set_url[%u]: queueing '%s'", (unsigned)idx, url.c_str());
   this->slots_[idx].url = url;
-  this->slots_[idx].timestamp = timestamp;
   this->slots_[idx].ready.store(false, std::memory_order_release);
   this->slots_[idx].error.store(false, std::memory_order_release);
   this->slots_[idx].pending.store(true, std::memory_order_release);
